@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AKUP - Evidence Detail</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">AKUP Evidence</span>
+    <a href="/static/dashboard.html">Dashboard</a>
+    <a href="/static/add.html">Add Evidence</a>
+    <a href="#" id="logout">Logout</a>
+  </nav>
+
+  <main>
+    <h2>Evidence Detail</h2>
+    <div id="message"></div>
+    <div id="detail">
+      <p aria-busy="true">Loading...</p>
+    </div>
+  </main>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    requireAuth();
+
+    const params = new URLSearchParams(window.location.search);
+    const evidenceId = params.get("id");
+
+    if (!evidenceId) {
+      window.location.href = "/static/dashboard.html";
+    }
+
+    async function loadDetail() {
+      const container = document.getElementById("detail");
+      try {
+        const r = await api("GET", `/api/v1/evidence/${evidenceId}`);
+
+        let html = `
+          <dl class="detail-grid">
+            <dt>ID</dt><dd>${escapeHtml(r.id)}</dd>
+            <dt>Date</dt><dd>${escapeHtml(r.evidence_date)}</dd>
+            <dt>Commit SHA</dt><dd><code>${escapeHtml(r.commit_sha)}</code></dd>
+            <dt>Repository</dt><dd><a href="${escapeHtml(r.repo_url)}" target="_blank">${escapeHtml(r.repo_url)}</a></dd>
+            <dt>Description</dt><dd>${escapeHtml(r.description)}</dd>
+            <dt>User ID</dt><dd>${escapeHtml(r.created_by_user_id)}</dd>
+            <dt>Created</dt><dd>${escapeHtml(r.created_at)}</dd>
+            <dt>Updated</dt><dd>${escapeHtml(r.updated_at)}</dd>
+          </dl>
+
+          <h3>AI Description</h3>`;
+
+        if (r.ai_description) {
+          html += `<div class="ai-description">${escapeHtml(r.ai_description)}</div>`;
+        } else {
+          html += `<p>No AI description yet.</p>`;
+        }
+
+        html += `
+          <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+            <button id="btn-generate">Generate AI Description</button>
+            <button id="btn-delete" class="secondary outline">Delete Record</button>
+          </div>`;
+
+        container.innerHTML = html;
+
+        document.getElementById("btn-generate").addEventListener("click", generateDescription);
+        document.getElementById("btn-delete").addEventListener("click", deleteRecord);
+      } catch (err) {
+        container.innerHTML = `<p class="msg msg-error">${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    async function generateDescription() {
+      const btn = document.getElementById("btn-generate");
+      btn.setAttribute("aria-busy", "true");
+      btn.disabled = true;
+      try {
+        await api("POST", `/api/v1/evidence/${evidenceId}/generate-description`);
+        await loadDetail();
+        showMessage(document.getElementById("message"), "AI description generated!");
+      } catch (err) {
+        showMessage(document.getElementById("message"), "Failed: " + err.message, "error");
+      } finally {
+        btn.removeAttribute("aria-busy");
+        btn.disabled = false;
+      }
+    }
+
+    async function deleteRecord() {
+      if (!confirm("Are you sure you want to delete this evidence record?")) return;
+      try {
+        await api("DELETE", `/api/v1/evidence/${evidenceId}`);
+        window.location.href = "/static/dashboard.html";
+      } catch (err) {
+        showMessage(document.getElementById("message"), "Failed: " + err.message, "error");
+      }
+    }
+
+    document.getElementById("logout").addEventListener("click", (e) => {
+      e.preventDefault();
+      clearApiKey();
+      window.location.href = "/static/index.html";
+    });
+
+    loadDetail();
+  </script>
+</body>
+</html>

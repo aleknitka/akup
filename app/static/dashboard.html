@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AKUP - Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">AKUP Evidence</span>
+    <a href="/static/dashboard.html">Dashboard</a>
+    <a href="/static/add.html">Add Evidence</a>
+    <a href="#" id="logout">Logout</a>
+  </nav>
+
+  <main>
+    <h2>Evidence Records</h2>
+
+    <details>
+      <summary>Filters</summary>
+      <div class="grid">
+        <label>
+          From date
+          <input type="date" id="filter-from">
+        </label>
+        <label>
+          To date
+          <input type="date" id="filter-to">
+        </label>
+        <label>
+          User
+          <select id="filter-user">
+            <option value="">All users</option>
+          </select>
+        </label>
+      </div>
+      <button id="apply-filters" class="secondary">Apply Filters</button>
+    </details>
+
+    <div id="message"></div>
+    <div id="evidence-table">
+      <p aria-busy="true">Loading...</p>
+    </div>
+  </main>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    requireAuth();
+
+    async function loadUsers() {
+      try {
+        const users = await api("GET", "/api/v1/users");
+        const select = document.getElementById("filter-user");
+        users.forEach(u => {
+          const opt = document.createElement("option");
+          opt.value = u.id;
+          opt.textContent = u.name;
+          select.appendChild(opt);
+        });
+      } catch (e) {
+        // Ignore — filters still work without user list
+      }
+    }
+
+    async function loadEvidence() {
+      const container = document.getElementById("evidence-table");
+      try {
+        const params = new URLSearchParams();
+        const from = document.getElementById("filter-from").value;
+        const to = document.getElementById("filter-to").value;
+        const userId = document.getElementById("filter-user").value;
+        if (from) params.set("date_from", from);
+        if (to) params.set("date_to", to);
+        if (userId) params.set("user_id", userId);
+        params.set("limit", "100");
+
+        const qs = params.toString();
+        const records = await api("GET", `/api/v1/evidence${qs ? "?" + qs : ""}`);
+
+        if (records.length === 0) {
+          container.innerHTML = "<p>No evidence records found. <a href='/static/add.html'>Add one</a>.</p>";
+          return;
+        }
+
+        let html = `<table>
+          <thead><tr>
+            <th>Date</th>
+            <th>Commit</th>
+            <th>Repository</th>
+            <th>Description</th>
+            <th>AI</th>
+          </tr></thead><tbody>`;
+
+        records.forEach(r => {
+          html += `<tr style="cursor:pointer" onclick="window.location='/static/detail.html?id=${r.id}'">
+            <td>${escapeHtml(r.evidence_date)}</td>
+            <td><code>${escapeHtml(r.commit_sha.slice(0, 10))}</code></td>
+            <td>${escapeHtml(truncate(r.repo_url, 40))}</td>
+            <td>${escapeHtml(truncate(r.description, 50))}</td>
+            <td>${r.ai_description ? "Yes" : "No"}</td>
+          </tr>`;
+        });
+
+        html += "</tbody></table>";
+        container.innerHTML = html;
+      } catch (err) {
+        container.innerHTML = `<p class="msg msg-error">Failed to load: ${escapeHtml(err.message)}</p>`;
+      }
+    }
+
+    document.getElementById("apply-filters").addEventListener("click", loadEvidence);
+    document.getElementById("logout").addEventListener("click", (e) => {
+      e.preventDefault();
+      clearApiKey();
+      window.location.href = "/static/index.html";
+    });
+
+    loadUsers();
+    loadEvidence();
+  </script>
+</body>
+</html>

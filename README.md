@@ -18,11 +18,12 @@ Businesses use this application to maintain a structured database of evidence re
                                               └──────────────────────┘
 ```
 
-**This is a server-only application.** There is no built-in client. You interact with it via:
+The application includes three ways to interact with the API:
 
-- **Swagger UI** — built into FastAPI, available at `http://localhost:8000/docs` when the server is running. This is the easiest way to explore and test the API interactively.
-- **curl / httpx** — command-line examples shown below.
-- **Any HTTP client** — a web frontend, CLI tool, or CI/CD integration can call the REST endpoints.
+- **CLI tool** (`akup`) — a command-line client for developers. Create orgs, users, and evidence records directly from the terminal.
+- **Web UI** — a lightweight browser-based interface at `http://localhost:8000/` for browsing and managing evidence records.
+- **Swagger UI** — built into FastAPI at `http://localhost:8000/docs` for exploring the raw API interactively.
+- **curl / httpx** — direct HTTP calls, examples shown below.
 
 ## Prerequisites
 
@@ -75,7 +76,74 @@ uv run uvicorn app.main:app --reload
 
 The API is now available at `http://localhost:8000`. Open `http://localhost:8000/docs` for the interactive Swagger UI.
 
-## API Usage Walkthrough
+## CLI Usage
+
+The `akup` CLI is installed automatically with the project. All commands use the config stored in `~/.akup/config.json`.
+
+### Setup
+
+```bash
+# Configure API URL (defaults to http://localhost:8000)
+uv run akup init
+
+# Or create an org first and save the API key in one step
+uv run akup org create "My Company"
+```
+
+### Managing users
+
+```bash
+uv run akup user create "Jan Kowalski" "jan@example.com"
+uv run akup user list
+```
+
+### Managing evidence
+
+```bash
+# Add a record
+uv run akup evidence add \
+  --commit-sha a1b2c3d4e5f6 \
+  --repo-url https://github.com/org/repo \
+  --description "Implemented OAuth2 authentication module" \
+  --date 2026-03-13 \
+  --user-id <user-id>
+
+# List records (with optional filters)
+uv run akup evidence list
+uv run akup evidence list --date-from 2026-03-01 --date-to 2026-03-31
+
+# View details
+uv run akup evidence show <evidence-id>
+
+# Generate AI description
+uv run akup evidence generate-description <evidence-id>
+```
+
+### All CLI commands
+
+```
+akup init                          Configure API URL and API key
+akup org create <name>             Create organization (returns API key)
+akup user create <name> <email>    Create user
+akup user list                     List users
+akup evidence add                  Add evidence record
+akup evidence list                 List evidence (with filters)
+akup evidence show <id>            Show evidence detail
+akup evidence generate-description <id>  Generate AI description
+```
+
+## Web UI
+
+Open `http://localhost:8000/` in your browser. The web interface provides:
+
+1. **Login page** — enter your organization's API key
+2. **Dashboard** — browse evidence records in a table, filter by date or user
+3. **Add Evidence** — form to create new evidence records
+4. **Detail view** — view all fields, generate AI descriptions, delete records
+
+The web UI uses Pico CSS for styling and vanilla JavaScript — no build step required.
+
+## API Usage (curl)
 
 Below is a complete workflow using `curl`. Every request (except creating an organization) requires the `X-API-Key` header.
 
@@ -248,7 +316,13 @@ akup/
 │   ├── models/             # SQLAlchemy ORM models
 │   ├── schemas/            # Pydantic request/response models
 │   ├── routers/            # API endpoint definitions
-│   └── services/           # Business logic (evidence CRUD, AI integration)
+│   ├── services/           # Business logic (evidence CRUD, AI integration)
+│   └── static/             # Web frontend (HTML, JS, CSS)
+├── cli/                    # CLI client (typer + httpx + rich)
+│   ├── main.py             # CLI entry point
+│   ├── config.py           # ~/.akup/config.json management
+│   ├── client.py           # HTTP client wrapper
+│   └── commands/           # CLI command groups
 ├── alembic/                # Database migrations
 ├── tests/                  # Pytest test suite
 ├── pyproject.toml          # Dependencies and tool config
