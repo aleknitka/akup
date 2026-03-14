@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: akup
+      POSTGRES_USER: akup
+      POSTGRES_PASSWORD: akup
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akup"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      AKUP_DATABASE_URL: postgresql+asyncpg://akup:akup@db:5432/akup
+      AKUP_ECHO_SQL: "false"
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:
