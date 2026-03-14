@@ -29,52 +29,99 @@ The application includes three ways to interact with the API:
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [Docker](https://docs.docker.com/get-docker/) + [Docker Compose](https://docs.docker.com/compose/) — only needed for the PostgreSQL path
 
 ## Getting Started
 
-### 1. Install dependencies
+Two paths to get a local environment running. Pick whichever fits your use case:
+
+| | Option A — SQLite | Option B — PostgreSQL via Docker |
+|---|---|---|
+| **Setup** | Zero, works out of the box | Docker Desktop required |
+| **Database** | File-based (`akup.db` in the project root) | Full PostgreSQL 16 container |
+| **Use when** | Quick local dev, running tests | Developing DB-sensitive code, closer to production |
+
+---
+
+### Option A: SQLite (simplest)
+
+No external database needed — SQLite is embedded and the file is created automatically.
 
 ```bash
+# 1. Install dependencies
 uv sync
-```
 
-This creates a virtual environment in `.venv/` and installs all dependencies.
-
-### 2. Configure the database
-
-Copy the example environment file:
-
-```bash
+# 2. Copy and use the default config (SQLite is pre-configured)
 cp .env.example .env
-```
 
-Edit `.env` to set your database URL:
-
-```bash
-# Local development (SQLite) — this is the default, no changes needed:
-AKUP_DATABASE_URL=sqlite+aiosqlite:///./akup.db
-
-# Production (PostgreSQL on Azure or elsewhere):
-AKUP_DATABASE_URL=postgresql+asyncpg://user:password@host:5432/akup
-```
-
-### 3. Initialize the database
-
-Run Alembic migrations to create the tables:
-
-```bash
+# 3. Create tables
 uv run alembic upgrade head
-```
 
-This works with both SQLite and PostgreSQL — the migration files are database-agnostic.
-
-### 4. Start the server
-
-```bash
+# 4. Start the server with hot reload
 uv run uvicorn app.main:app --reload
 ```
 
-The API is now available at `http://localhost:8000`. Open `http://localhost:8000/docs` for the interactive Swagger UI.
+The API is now available at `http://localhost:8000`.
+
+---
+
+### Option B: PostgreSQL via Docker Compose
+
+Runs a PostgreSQL 16 container locally. The app itself still runs directly with `uv` so you get hot reload.
+
+```bash
+# 1. Install dependencies
+uv sync
+
+# 2. Start the database container
+docker compose up db -d
+
+# 3. Configure the app to connect to the Docker database
+cp .env.example .env
+```
+
+Edit `.env` and switch the database URL:
+
+```bash
+AKUP_DATABASE_URL=postgresql+asyncpg://akup:akup@localhost:5432/akup
+```
+
+```bash
+# 4. Create tables
+uv run alembic upgrade head
+
+# 5. Start the server with hot reload
+uv run uvicorn app.main:app --reload
+```
+
+The API is now available at `http://localhost:8000`.
+
+To stop the database container:
+
+```bash
+docker compose down        # stop, keep data
+docker compose down -v     # stop and delete all data
+```
+
+---
+
+### Option C: Full stack in Docker Compose
+
+Runs both the database and the app in containers. Useful for testing the production-like setup or sharing a reproducible environment.
+
+```bash
+docker compose up --build
+```
+
+The API is available at `http://localhost:8000`. Migrations run automatically on startup.
+
+To stop:
+
+```bash
+docker compose down
+```
+
+---
 
 ## CLI Usage
 
