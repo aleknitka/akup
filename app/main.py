@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.routers import evidence, organizations, users
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
@@ -23,6 +28,12 @@ app = FastAPI(
 app.include_router(organizations.router)
 app.include_router(users.router)
 app.include_router(evidence.router)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/")
+async def root() -> RedirectResponse:
+    return RedirectResponse(url="/static/index.html")
 
 
 @app.get("/health")
