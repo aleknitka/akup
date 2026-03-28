@@ -1,332 +1,237 @@
-# AKUP Evidence API
+# AKUP — Distributed Evidence Recorder
 
-REST API for recording evidence of creative/authorial work for the purpose of **AKUP** (autorskie koszty uzyskania przychodu) — the Polish tax regulation that allows employees to deduct 50% of their income as author's costs when their work involves creative contributions (software development, design, research, etc.).
+CLI tool for recording evidence of creative/authorial work for **AKUP** (autorskie koszty uzyskania przychodu) — the Polish tax regulation allowing 50% income deduction for author's costs.
 
-Businesses use this application to maintain a structured database of evidence records — linking git commits, descriptions of work, and AI-generated summaries — that can be referenced during tax audits.
+Evidence is captured automatically from git commits and linked to artifacts (Jira tickets, Confluence pages) to create a verifiable audit trail.
 
 ## Architecture
 
 ```
-┌─────────────────┐        HTTP / JSON        ┌──────────────────────┐
-│   Client         │ ──────────────────────── │   AKUP API Server     │
-│                  │                           │   (FastAPI + uvicorn) │
-│  - curl          │   X-API-Key header        │                      │
-│  - Swagger UI    │ ◄──────────────────────── │   SQLAlchemy (async)  │
-│  - custom app    │                           │         │             │
-│  - CI pipeline   │                           │         ▼             │
-└─────────────────┘                           │   PostgreSQL / SQLite │
-                                              └──────────────────────┘
+Developer's machine
+├── Git repos (each with .akup/evidence/*.yaml)
+│   ├── post-commit hook → auto-records evidence
+│   └── .akup/config.yaml (Jira/Confluence settings)
+├── akup CLI (Python)
+│   ├── record   — capture evidence from commits
+│   ├── list     — browse evidence
+│   ├── aggregate — daily report across all repos
+│   └── --json   — structured output for Ink TUI
+└── ~/.akup/config.yaml (global: repo list, display name)
 ```
 
-The application includes three ways to interact with the API:
+**No server needed.** Evidence lives as YAML files committed alongside your code. Git is the storage layer and audit trail.
 
-- **CLI tool** (`akup`) — a command-line client for developers. Create orgs, users, and evidence records directly from the terminal.
-- **Web UI** — a lightweight browser-based interface at `http://localhost:8000/` for browsing and managing evidence records.
-- **Swagger UI** — built into FastAPI at `http://localhost:8000/docs` for exploring the raw API interactively.
-- **curl / httpx** — direct HTTP calls, examples shown below.
+## How It Works
+
+1. Run `akup init` in a repo — installs a post-commit hook
+2. Every commit automatically creates an evidence record in `.akup/evidence/`
+3. Each record captures: commit SHA, diff stats, changed files, branch, description
+4. Optionally link Jira tickets and Confluence pages for full traceability
+5. At end of day, `akup aggregate` collects evidence from all repos into a daily report
 
 ## Prerequisites
 
 - Python 3.11+
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [uv](https://docs.astral.sh/uv/)
+- Git
 
 ## Getting Started
 
-### 1. Install dependencies
-
 ```bash
+# Install
 uv sync
-```
 
-This creates a virtual environment in `.venv/` and installs all dependencies.
-
-### 2. Configure the database
-
-Copy the example environment file:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` to set your database URL:
-
-```bash
-# Local development (SQLite) — this is the default, no changes needed:
-AKUP_DATABASE_URL=sqlite+aiosqlite:///./akup.db
-
-# Production (PostgreSQL on Azure or elsewhere):
-AKUP_DATABASE_URL=postgresql+asyncpg://user:password@host:5432/akup
-```
-
-### 3. Initialize the database
-
-Run Alembic migrations to create the tables:
-
-```bash
-uv run alembic upgrade head
-```
-
-This works with both SQLite and PostgreSQL — the migration files are database-agnostic.
-
-### 4. Start the server
-
-```bash
-uv run uvicorn app.main:app --reload
-```
-
-The API is now available at `http://localhost:8000`. Open `http://localhost:8000/docs` for the interactive Swagger UI.
-
-## CLI Usage
-
-The `akup` CLI is installed automatically with the project. All commands use the config stored in `~/.akup/config.json`.
-
-### Setup
-
-```bash
-# Configure API URL (defaults to http://localhost:8000)
+# Initialize in a git repo
+cd /path/to/your/repo
 uv run akup init
 
-# Or create an org first and save the API key in one step
-uv run akup org create "My Company"
+# Optionally configure Jira/Confluence
+uv run akup init \
+  --jira-url https://jira.example.com \
+  --jira-project PROJ \
+  --confluence-url https://wiki.example.com \
+  --confluence-space ENG
 ```
 
-### Managing users
+This does three things:
+1. Creates `.akup/config.yaml` in the repo
+2. Installs a post-commit git hook
+3. Registers the repo in your global config (`~/.akup/config.yaml`)
+
+Now every commit will auto-record evidence.
+
+## CLI Commands
+
+### Recording evidence
 
 ```bash
-uv run akup user create "Jan Kowalski" "jan@example.com"
-uv run akup user list
+# Auto-recorded by git hook on each commit — no action needed
+
+# Manually record with a custom description
+uv run akup record --description "Designed auth architecture with PKCE flow"
+
+# Record with linked artifacts
+uv run akup record \
+  --description "Implemented OAuth2 module" \
+  --jira PROJ-123 \
+  --confluence 12345678
 ```
 
-### Managing evidence
+### Browsing evidence
 
 ```bash
-# Add a record
-uv run akup evidence add \
-  --commit-sha a1b2c3d4e5f6 \
-  --repo-url https://github.com/org/repo \
-  --description "Implemented OAuth2 authentication module" \
-  --date 2026-03-13 \
-  --user-id <user-id>
+# List all evidence in current repo
+uv run akup list
 
-# List records (with optional filters)
-uv run akup evidence list
-uv run akup evidence list --date-from 2026-03-01 --date-to 2026-03-31
+# Filter by date
+uv run akup list --date 2026-03-28
 
-# View details
-uv run akup evidence show <evidence-id>
-
-# Generate AI description
-uv run akup evidence generate-description <evidence-id>
+# Show details of a specific record (prefix match on ID)
+uv run akup show a1b2c3d4
 ```
 
-### All CLI commands
-
-```
-akup init                          Configure API URL and API key
-akup org create <name>             Create organization (returns API key)
-akup user create <name> <email>    Create user
-akup user list                     List users
-akup evidence add                  Add evidence record
-akup evidence list                 List evidence (with filters)
-akup evidence show <id>            Show evidence detail
-akup evidence generate-description <id>  Generate AI description
-```
-
-## Web UI
-
-Open `http://localhost:8000/` in your browser. The web interface provides:
-
-1. **Login page** — enter your organization's API key
-2. **Dashboard** — browse evidence records in a table, filter by date or user
-3. **Add Evidence** — form to create new evidence records
-4. **Detail view** — view all fields, generate AI descriptions, delete records
-
-The web UI uses Pico CSS for styling and vanilla JavaScript — no build step required.
-
-## API Usage (curl)
-
-Below is a complete workflow using `curl`. Every request (except creating an organization) requires the `X-API-Key` header.
-
-### Step 1: Create an organization
-
-This is the bootstrap step. No authentication required. The response includes the API key you'll use for all subsequent requests.
+### Daily aggregation
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/organizations \
-  -H "Content-Type: application/json" \
-  -d '{"name": "My Company"}' | python -m json.tool
+# Aggregate today's evidence from all configured repos
+uv run akup aggregate
+
+# Aggregate a specific date
+uv run akup aggregate --date 2026-03-28
 ```
 
-Response:
-```json
-{
-    "id": "a1b2c3d4-...",
-    "name": "My Company",
-    "api_key": "abc123...",
-    "created_at": "2026-03-13T10:00:00"
-}
-```
+If `evidence_repo` is set in `~/.akup/config.yaml`, the daily report is saved there as `reports/YYYY-MM-DD.yaml`.
 
-Save the `api_key` value — you'll need it for everything else:
+### Hook management
 
 ```bash
-export API_KEY="abc123..."
+uv run akup hook install    # Install post-commit hook
+uv run akup hook uninstall  # Remove it
+uv run akup hook status     # Check if installed
 ```
 
-### Step 2: Create a user
+### Configuration
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/users \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $API_KEY" \
-  -d '{"name": "Jan Kowalski", "email": "jan@example.com"}' | python -m json.tool
+uv run akup config          # Show current config (global + repo)
 ```
 
-Save the user `id` from the response:
+### JSON output
+
+Every command supports `--json` for machine-readable output (used by the Ink TUI frontend):
 
 ```bash
-export USER_ID="e5f6g7h8-..."
+uv run akup list --json
+uv run akup show a1b2c3d4 --json
+uv run akup aggregate --json
 ```
 
-### Step 3: Record evidence
+## Evidence Record Format
 
-Create an evidence record linking a git commit to a description of creative work:
+Each record is a YAML file in `.akup/evidence/`:
 
-```bash
-curl -s -X POST http://localhost:8000/api/v1/evidence \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $API_KEY" \
-  -d "{
-    \"commit_sha\": \"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\",
-    \"repo_url\": \"https://github.com/mycompany/myproject\",
-    \"description\": \"Designed and implemented a new authentication module using OAuth2 with PKCE flow\",
-    \"evidence_date\": \"2026-03-13\",
-    \"created_by_user_id\": \"$USER_ID\"
-  }" | python -m json.tool
+```yaml
+version: 1
+id: a1b2c3d4-5678-...
+commit_sha: abc1234def5678901234567890abcdef12345678
+repo_url: https://github.com/org/repo
+branch: feature/auth
+diff_stat:
+  files_changed: 3
+  insertions: 47
+  deletions: 12
+  files:
+    - src/auth.py
+    - src/models/user.py
+    - tests/test_auth.py
+description: Implemented OAuth2 authentication with PKCE flow
+artifacts:
+  - type: jira
+    id: PROJ-123
+    url: https://jira.example.com/browse/PROJ-123
+    title: Implement auth module
+    status: In Progress
+  - type: confluence
+    id: '12345678'
+    url: https://wiki.example.com/pages/12345678
+    title: Auth Architecture Decision Record
+    version: '5'
+author_display_name: Brave Falcon
+created_at: '2026-03-28T09:15:00'
 ```
 
-### Step 4: List evidence records
+## Audit Trail
 
-List all records, optionally filtering by date range or user:
+The audit trail is verifiable at every level:
 
-```bash
-# All records
-curl -s http://localhost:8000/api/v1/evidence \
-  -H "X-API-Key: $API_KEY" | python -m json.tool
+| What | How to verify |
+|---|---|
+| Commit exists | `git log <sha>` in the repo |
+| Diff matches | `git diff-tree --stat <sha>` |
+| Jira ticket | Follow URL or call Jira API |
+| Confluence page | Follow URL or call Confluence API |
+| Timestamp | Git commit timestamp of the evidence file itself |
+| Author | Display name mapped in `~/.akup/config.yaml` |
 
-# Filter by date range
-curl -s "http://localhost:8000/api/v1/evidence?date_from=2026-03-01&date_to=2026-03-31" \
-  -H "X-API-Key: $API_KEY" | python -m json.tool
-
-# Filter by user
-curl -s "http://localhost:8000/api/v1/evidence?user_id=$USER_ID" \
-  -H "X-API-Key: $API_KEY" | python -m json.tool
-```
-
-### Step 5: Generate AI description
-
-Trigger the AI service to generate a richer description for an evidence record. Currently uses a placeholder — a real AI provider (Claude, GPT, etc.) can be plugged in later.
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/evidence/{evidence_id}/generate-description \
-  -H "X-API-Key: $API_KEY" | python -m json.tool
-```
-
-The `ai_description` field will be populated in the response.
-
-### Step 6: Update or delete
-
-```bash
-# Update
-curl -s -X PUT http://localhost:8000/api/v1/evidence/{evidence_id} \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $API_KEY" \
-  -d '{"description": "Updated description of the work"}' | python -m json.tool
-
-# Delete
-curl -s -X DELETE http://localhost:8000/api/v1/evidence/{evidence_id} \
-  -H "X-API-Key: $API_KEY"
-```
-
-## API Reference
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/api/v1/organizations` | None | Create organization (returns API key) |
-| `POST` | `/api/v1/users` | API key | Create user in organization |
-| `GET` | `/api/v1/users` | API key | List users in organization |
-| `POST` | `/api/v1/evidence` | API key | Create evidence record |
-| `GET` | `/api/v1/evidence` | API key | List evidence (filters: `date_from`, `date_to`, `user_id`, `offset`, `limit`) |
-| `GET` | `/api/v1/evidence/{id}` | API key | Get single evidence record |
-| `PUT` | `/api/v1/evidence/{id}` | API key | Update evidence record |
-| `DELETE` | `/api/v1/evidence/{id}` | API key | Delete evidence record |
-| `POST` | `/api/v1/evidence/{id}/generate-description` | API key | Generate AI description |
-| `GET` | `/health` | None | Health check |
-
-Full interactive documentation is available at `/docs` (Swagger UI) or `/redoc` when the server is running.
+Evidence files are committed to the repo, so they have their own git history — tampering is detectable.
 
 ## Configuration
 
-All settings are configured via environment variables (prefixed with `AKUP_`) or a `.env` file:
+### Global (`~/.akup/config.yaml`)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AKUP_DATABASE_URL` | `sqlite+aiosqlite:///./akup.db` | Database connection string |
-| `AKUP_ECHO_SQL` | `false` | Log all SQL queries to stdout |
-
-## Database Management
-
-### Creating new migrations
-
-After modifying SQLAlchemy models, generate a new migration:
-
-```bash
-uv run alembic revision --autogenerate -m "describe your change"
+```yaml
+display_name: Brave Falcon
+repos:
+  - /home/user/projects/repo1
+  - /home/user/projects/repo2
+evidence_repo: /home/user/evidence-archive
 ```
 
-### Applying migrations
+### Per-repo (`.akup/config.yaml`)
 
-```bash
-uv run alembic upgrade head
+```yaml
+jira:
+  url: https://jira.example.com
+  project: PROJ
+  email: user@example.com
+  token: your-api-token
+confluence:
+  url: https://wiki.example.com
+  space: ENG
+  email: user@example.com
+  token: your-api-token
 ```
 
-### Downgrading
+## Privacy
 
-```bash
-uv run alembic downgrade -1
-```
+- No real names stored — each user gets an auto-assigned display name (e.g. "Brave Falcon", "Quick Otter")
+- Jira/Confluence tokens are stored in local config only, never in evidence files
+- Evidence files contain only commit metadata and artifact references
 
 ## Running Tests
-
-Tests use an in-memory SQLite database — no external database needed.
 
 ```bash
 uv run pytest -v
 ```
 
+31 tests covering: models, git operations, hooks, recording, aggregation, and configuration.
+
 ## Project Structure
 
 ```
 akup/
-├── app/
-│   ├── main.py             # FastAPI application entry point
-│   ├── config.py           # Settings (env vars)
-│   ├── database.py         # SQLAlchemy async engine and session
-│   ├── dependencies.py     # FastAPI dependencies (DB session, API key auth)
-│   ├── models/             # SQLAlchemy ORM models
-│   ├── schemas/            # Pydantic request/response models
-│   ├── routers/            # API endpoint definitions
-│   ├── services/           # Business logic (evidence CRUD, AI integration)
-│   └── static/             # Web frontend (HTML, JS, CSS)
-├── cli/                    # CLI client (typer + httpx + rich)
-│   ├── main.py             # CLI entry point
-│   ├── config.py           # ~/.akup/config.json management
-│   ├── client.py           # HTTP client wrapper
-│   └── commands/           # CLI command groups
-├── alembic/                # Database migrations
-├── tests/                  # Pytest test suite
-├── pyproject.toml          # Dependencies and tool config
-└── .env.example            # Environment variable template
+├── src/akup/
+│   ├── cli.py          # Typer CLI with --json output
+│   ├── config.py       # Global + per-repo config, display name generator
+│   ├── models.py       # EvidenceRecord dataclass + YAML serialization
+│   ├── git_ops.py      # Git operations (commit info, diff stats)
+│   ├── hooks.py        # Post-commit hook install/uninstall
+│   ├── recorder.py     # Evidence creation (auto + manual)
+│   ├── artifacts.py    # Jira + Confluence API clients
+│   └── aggregator.py   # Daily report generation across repos
+├── tests/              # Pytest test suite
+├── pyproject.toml      # Dependencies and tool config
+└── uv.lock
 ```
 
 ## License
