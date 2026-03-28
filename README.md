@@ -32,52 +32,106 @@ Developer's machine
 ## Prerequisites
 
 - Python 3.11+
-- [uv](https://docs.astral.sh/uv/)
-- Git
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [Docker](https://docs.docker.com/get-docker/) + [Docker Compose](https://docs.docker.com/compose/) — only needed for the PostgreSQL path
 
 ## Getting Started
 
+Two paths to get a local environment running. Pick whichever fits your use case:
+
+| | Option A — SQLite | Option B — PostgreSQL via Docker |
+|---|---|---|
+| **Setup** | Zero, works out of the box | Docker Desktop required |
+| **Database** | File-based (`akup.db` in the project root) | Full PostgreSQL 16 container |
+| **Use when** | Quick local dev, running tests | Developing DB-sensitive code, closer to production |
+
+---
+
+### Option A: SQLite (simplest)
+
+No external database needed — SQLite is embedded and the file is created automatically.
+
 ```bash
-# Install
+# 1. Install dependencies
 uv sync
 
-# Initialize in a git repo
-cd /path/to/your/repo
-uv run akup init
+# 2. Copy and use the default config (SQLite is pre-configured)
+cp .env.example .env
 
-# Optionally configure Jira/Confluence
-uv run akup init \
-  --jira-url https://jira.example.com \
-  --jira-project PROJ \
-  --confluence-url https://wiki.example.com \
-  --confluence-space ENG
+# 3. Create tables
+uv run alembic upgrade head
+
+# 4. Start the server with hot reload
+uv run uvicorn app.main:app --reload
 ```
 
-This does three things:
-1. Creates `.akup/config.yaml` in the repo
-2. Installs a post-commit git hook
-3. Registers the repo in your global config (`~/.akup/config.yaml`)
+The API is now available at `http://localhost:8000`.
 
-Now every commit will auto-record evidence.
+---
 
-## CLI Commands
+### Option B: PostgreSQL via Docker Compose
 
-### Recording evidence
+Runs a PostgreSQL 16 container locally. The app itself still runs directly with `uv` so you get hot reload.
 
 ```bash
-# Auto-recorded by git hook on each commit — no action needed
+# 1. Install dependencies
+uv sync
 
-# Manually record with a custom description
-uv run akup record --description "Designed auth architecture with PKCE flow"
+# 2. Start the database container
+docker compose up db -d
 
-# Record with linked artifacts
-uv run akup record \
-  --description "Implemented OAuth2 module" \
-  --jira PROJ-123 \
-  --confluence 12345678
+# 3. Configure the app to connect to the Docker database
+cp .env.example .env
 ```
 
-### Browsing evidence
+Edit `.env` and switch the database URL:
+
+```bash
+AKUP_DATABASE_URL=postgresql+asyncpg://akup:akup@localhost:5432/akup
+```
+
+```bash
+# 4. Create tables
+uv run alembic upgrade head
+
+# 5. Start the server with hot reload
+uv run uvicorn app.main:app --reload
+```
+
+The API is now available at `http://localhost:8000`.
+
+To stop the database container:
+
+```bash
+docker compose down        # stop, keep data
+docker compose down -v     # stop and delete all data
+```
+
+---
+
+### Option C: Full stack in Docker Compose
+
+Runs both the database and the app in containers. Useful for testing the production-like setup or sharing a reproducible environment.
+
+```bash
+docker compose up --build
+```
+
+The API is available at `http://localhost:8000`. Migrations run automatically on startup.
+
+To stop:
+
+```bash
+docker compose down
+```
+
+---
+
+## CLI Usage
+
+The `akup` CLI is installed automatically with the project. All commands use the config stored in `~/.akup/config.json`.
+
+### Setup
 
 ```bash
 # List all evidence in current repo
