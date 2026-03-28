@@ -11,7 +11,6 @@ class EvidenceCreate(BaseModel):
     repo_url: str = Field(max_length=500)
     description: str = Field(max_length=2000)
     evidence_date: date
-    created_by_user_id: uuid.UUID
 
 
 class EvidenceUpdate(BaseModel):
@@ -30,6 +29,8 @@ class EvidenceRead(BaseModel):
     description: str
     ai_description: str | None
     evidence_date: date
+    removal_requested_at: datetime | None
+    removal_requested_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
 

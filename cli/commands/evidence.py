@@ -14,7 +14,6 @@ def add(
     repo_url: str = typer.Option(..., help="Repository URL"),
     description: str = typer.Option(..., help="Description of creative work"),
     date: str = typer.Option(..., help="Date of work (YYYY-MM-DD)"),
-    user_id: str = typer.Option(..., help="User ID who performed the work"),
 ) -> None:
     """Add a new evidence record."""
     client = get_client()
@@ -25,7 +24,6 @@ def add(
             "repo_url": repo_url,
             "description": description,
             "evidence_date": date,
-            "created_by_user_id": user_id,
         },
     )
     print_record(resp.json(), title="Evidence Created")
@@ -35,7 +33,6 @@ def add(
 def list_evidence(
     date_from: str | None = typer.Option(None, help="Filter from date (YYYY-MM-DD)"),
     date_to: str | None = typer.Option(None, help="Filter to date (YYYY-MM-DD)"),
-    user_id: str | None = typer.Option(None, help="Filter by user ID"),
     limit: int = typer.Option(50, help="Max records to return"),
 ) -> None:
     """List evidence records with optional filters."""
@@ -45,8 +42,6 @@ def list_evidence(
         params["date_from"] = date_from
     if date_to:
         params["date_to"] = date_to
-    if user_id:
-        params["user_id"] = user_id
     resp = client.get("/api/v1/evidence", params=params)
     records = resp.json()
     if not records:
@@ -61,6 +56,16 @@ def show(evidence_id: str = typer.Argument(..., help="Evidence record ID")) -> N
     client = get_client()
     resp = client.get(f"/api/v1/evidence/{evidence_id}")
     print_record(resp.json())
+
+
+@app.command("request-removal")
+def request_removal(
+    evidence_id: str = typer.Argument(..., help="Evidence record ID"),
+) -> None:
+    """Request removal of an evidence record."""
+    client = get_client()
+    resp = client.post(f"/api/v1/evidence/{evidence_id}/request-removal")
+    print_record(resp.json(), title="Removal Requested")
 
 
 @app.command("generate-description")

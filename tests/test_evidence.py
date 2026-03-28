@@ -1,91 +1,217 @@
 from __future__ import annotations
 
-from typing import Any
-
-import pytest
 from httpx import AsyncClient
 
+from tests.conftest import auth_header
 
-@pytest.fixture
-async def evidence_data(
-    client: AsyncClient,
-    org_and_key: tuple[dict[str, Any], str],
-    user_data: dict[str, Any],
-) -> tuple[dict[str, Any], str]:
-    _, api_key = org_and_key
+EVIDENCE_PAYLOAD = {
+    "commit_sha": "abc1234def5678",
+    "repo_url": "https://github.com/org/repo",
+    "description": "Implemented new auth module",
+    "evidence_date": "2026-03-10",
+}
+
+
+async def _create_evidence(client: AsyncClient, token: str) -> dict:
     resp = await client.post(
         "/api/v1/evidence",
-        json={
-            "commit_sha": "abc1234def5678",
-            "repo_url": "https://github.com/org/repo",
-            "description": "Implemented new auth module",
-            "evidence_date": "2026-03-10",
-            "created_by_user_id": user_data["id"],
-        },
-        headers={"X-API-Key": api_key},
+        json=EVIDENCE_PAYLOAD,
+        headers=auth_header(token),
     )
     assert resp.status_code == 201
-    return resp.json(), api_key
+    return resp.json()
 
 
-async def test_create_evidence(evidence_data: tuple[dict[str, Any], str]) -> None:
-    data, _ = evidence_data
+# --- Creation ---
+
+
+async def test_create_evidence(client: AsyncClient, manager_token: str) -> None:
+    data = await _create_evidence(client, manager_token)
     assert data["commit_sha"] == "abc1234def5678"
     assert data["repo_url"] == "https://github.com/org/repo"
     assert data["description"] == "Implemented new auth module"
     assert data["ai_description"] is None
+    assert data["removal_requested_at"] is None
 
 
-async def test_list_evidence(
-    client: AsyncClient, evidence_data: tuple[dict[str, Any], str]
+async def test_user_creates_evidence(client: AsyncClient, user_token: str) -> None:
+    data = await _create_evidence(client, user_token)
+    assert data["commit_sha"] == "abc1234def5678"
+
+
+async def test_reporter_cannot_create_evidence(
+    client: AsyncClient, reporter_token: str
 ) -> None:
-    _, api_key = evidence_data
-    resp = await client.get("/api/v1/evidence", headers={"X-API-Key": api_key})
+    resp = await client.post(
+        "/api/v1/evidence",
+        json=EVIDENCE_PAYLOAD,
+        headers=auth_header(reporter_token),
+    )
+    assert resp.status_code == 403
+
+
+# --- Listing / visibility ---
+
+
+async def test_manager_sees_all_evidence(
+    client: AsyncClient, manager_token: str, user_token: str
+) -> None:
+    await _create_evidence(client, manager_token)
+    await _create_evidence(client, user_token)
+
+    resp = await client.get("/api/v1/evidence", headers=auth_header(manager_token))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+async def test_user_sees_only_own(
+    client: AsyncClient, manager_token: str, user_token: str
+) -> None:
+    await _create_evidence(client, manager_token)
+    await _create_evidence(client, user_token)
+
+    resp = await client.get("/api/v1/evidence", headers=auth_header(user_token))
     assert resp.status_code == 200
     items = resp.json()
     assert len(items) == 1
 
 
-async def test_get_evidence(
-    client: AsyncClient, evidence_data: tuple[dict[str, Any], str]
+async def test_reporter_sees_all_evidence(
+    client: AsyncClient, manager_token: str, user_token: str, reporter_token: str
 ) -> None:
-    data, api_key = evidence_data
-    resp = await client.get(f"/api/v1/evidence/{data['id']}", headers={"X-API-Key": api_key})
+    await _create_evidence(client, manager_token)
+    await _create_evidence(client, user_token)
+
+    resp = await client.get("/api/v1/evidence", headers=auth_header(reporter_token))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+# --- Get single ---
+
+
+async def test_get_evidence(client: AsyncClient, manager_token: str) -> None:
+    data = await _create_evidence(client, manager_token)
+    resp = await client.get(
+        f"/api/v1/evidence/{data['id']}", headers=auth_header(manager_token)
+    )
     assert resp.status_code == 200
     assert resp.json()["id"] == data["id"]
 
 
-async def test_update_evidence(
-    client: AsyncClient, evidence_data: tuple[dict[str, Any], str]
+async def test_user_cannot_get_others_evidence(
+    client: AsyncClient, manager_token: str, user_token: str
 ) -> None:
-    data, api_key = evidence_data
+    data = await _create_evidence(client, manager_token)
+    resp = await client.get(
+        f"/api/v1/evidence/{data['id']}", headers=auth_header(user_token)
+    )
+    assert resp.status_code == 404
+
+
+# --- Update ---
+
+
+async def test_update_evidence(client: AsyncClient, manager_token: str) -> None:
+    data = await _create_evidence(client, manager_token)
     resp = await client.put(
         f"/api/v1/evidence/{data['id']}",
         json={"description": "Updated description"},
-        headers={"X-API-Key": api_key},
+        headers=auth_header(manager_token),
     )
     assert resp.status_code == 200
     assert resp.json()["description"] == "Updated description"
 
 
-async def test_delete_evidence(
-    client: AsyncClient, evidence_data: tuple[dict[str, Any], str]
+async def test_reporter_cannot_update(
+    client: AsyncClient, manager_token: str, reporter_token: str
 ) -> None:
-    data, api_key = evidence_data
-    resp = await client.delete(f"/api/v1/evidence/{data['id']}", headers={"X-API-Key": api_key})
+    data = await _create_evidence(client, manager_token)
+    resp = await client.put(
+        f"/api/v1/evidence/{data['id']}",
+        json={"description": "Nope"},
+        headers=auth_header(reporter_token),
+    )
+    assert resp.status_code == 403
+
+
+# --- Delete ---
+
+
+async def test_manager_deletes_evidence(client: AsyncClient, manager_token: str) -> None:
+    data = await _create_evidence(client, manager_token)
+    resp = await client.delete(
+        f"/api/v1/evidence/{data['id']}", headers=auth_header(manager_token)
+    )
     assert resp.status_code == 204
 
-    resp = await client.get(f"/api/v1/evidence/{data['id']}", headers={"X-API-Key": api_key})
+    resp = await client.get(
+        f"/api/v1/evidence/{data['id']}", headers=auth_header(manager_token)
+    )
     assert resp.status_code == 404
 
 
-async def test_generate_description(
-    client: AsyncClient, evidence_data: tuple[dict[str, Any], str]
+async def test_user_cannot_delete_directly(
+    client: AsyncClient, user_token: str
 ) -> None:
-    data, api_key = evidence_data
+    data = await _create_evidence(client, user_token)
+    resp = await client.delete(
+        f"/api/v1/evidence/{data['id']}", headers=auth_header(user_token)
+    )
+    assert resp.status_code == 403
+
+
+# --- Removal request flow ---
+
+
+async def test_request_and_approve_removal(
+    client: AsyncClient, user_token: str, manager_token: str
+) -> None:
+    data = await _create_evidence(client, user_token)
+
+    # User requests removal
+    resp = await client.post(
+        f"/api/v1/evidence/{data['id']}/request-removal",
+        headers=auth_header(user_token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["removal_requested_at"] is not None
+
+    # Manager approves (deletes)
+    resp = await client.post(
+        f"/api/v1/evidence/{data['id']}/approve-removal",
+        headers=auth_header(manager_token),
+    )
+    assert resp.status_code == 204
+
+
+async def test_request_and_cancel_removal(
+    client: AsyncClient, user_token: str, manager_token: str
+) -> None:
+    data = await _create_evidence(client, user_token)
+
+    resp = await client.post(
+        f"/api/v1/evidence/{data['id']}/request-removal",
+        headers=auth_header(user_token),
+    )
+    assert resp.status_code == 200
+
+    resp = await client.post(
+        f"/api/v1/evidence/{data['id']}/cancel-removal",
+        headers=auth_header(manager_token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["removal_requested_at"] is None
+
+
+# --- Generate AI description ---
+
+
+async def test_generate_description(client: AsyncClient, manager_token: str) -> None:
+    data = await _create_evidence(client, manager_token)
     resp = await client.post(
         f"/api/v1/evidence/{data['id']}/generate-description",
-        headers={"X-API-Key": api_key},
+        headers=auth_header(manager_token),
     )
     assert resp.status_code == 200
     result = resp.json()
@@ -93,14 +219,18 @@ async def test_generate_description(
     assert "abc1234d" in result["ai_description"]
 
 
+# --- Date filter ---
+
+
 async def test_list_evidence_filter_by_date(
-    client: AsyncClient, evidence_data: tuple[dict[str, Any], str]
+    client: AsyncClient, manager_token: str
 ) -> None:
-    _, api_key = evidence_data
+    await _create_evidence(client, manager_token)
+
     resp = await client.get(
         "/api/v1/evidence",
         params={"date_from": "2026-03-09", "date_to": "2026-03-11"},
-        headers={"X-API-Key": api_key},
+        headers=auth_header(manager_token),
     )
     assert resp.status_code == 200
     assert len(resp.json()) == 1
@@ -108,12 +238,15 @@ async def test_list_evidence_filter_by_date(
     resp = await client.get(
         "/api/v1/evidence",
         params={"date_from": "2026-03-11"},
-        headers={"X-API-Key": api_key},
+        headers=auth_header(manager_token),
     )
     assert resp.status_code == 200
     assert len(resp.json()) == 0
 
 
-async def test_invalid_api_key(client: AsyncClient) -> None:
-    resp = await client.get("/api/v1/evidence", headers={"X-API-Key": "invalid-key"})
+# --- No auth ---
+
+
+async def test_no_auth_returns_401(client: AsyncClient) -> None:
+    resp = await client.get("/api/v1/evidence")
     assert resp.status_code == 401

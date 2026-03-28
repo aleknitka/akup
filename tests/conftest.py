@@ -40,23 +40,70 @@ async def client() -> AsyncIterator[AsyncClient]:
         yield ac
 
 
-@pytest.fixture
-async def org_and_key(client: AsyncClient) -> tuple[dict[str, Any], str]:
-    resp = await client.post("/api/v1/organizations", json={"name": "Test Org"})
-    assert resp.status_code == 201
-    data = resp.json()
-    return data, data["api_key"]
+def auth_header(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
-async def user_data(
-    client: AsyncClient, org_and_key: tuple[dict[str, Any], str]
-) -> dict[str, Any]:
-    _, api_key = org_and_key
+async def bootstrapped(client: AsyncClient) -> tuple[dict[str, Any], str]:
+    """Bootstrap org + manager, return (manager_data, token)."""
     resp = await client.post(
-        "/api/v1/users",
-        json={"name": "Jan Kowalski", "email": "jan@example.com"},
-        headers={"X-API-Key": api_key},
+        "/api/v1/auth/bootstrap",
+        json={
+            "org_name": "Test Org",
+            "email": "manager@example.com",
+            "password": "securepass123",
+        },
     )
     assert resp.status_code == 201
-    return resp.json()
+    manager_data = resp.json()
+
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "manager@example.com", "password": "securepass123"},
+    )
+    assert login_resp.status_code == 200
+    token = login_resp.json()["access_token"]
+    return manager_data, token
+
+
+@pytest.fixture
+async def manager_token(bootstrapped: tuple[dict[str, Any], str]) -> str:
+    _, token = bootstrapped
+    return token
+
+
+@pytest.fixture
+async def user_token(client: AsyncClient, manager_token: str) -> str:
+    """Create a regular user and return their token."""
+    resp = await client.post(
+        "/api/v1/users",
+        json={"email": "user@example.com", "password": "userpass12345", "role": "user"},
+        headers=auth_header(manager_token),
+    )
+    assert resp.status_code == 201
+
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "user@example.com", "password": "userpass12345"},
+    )
+    assert login_resp.status_code == 200
+    return login_resp.json()["access_token"]
+
+
+@pytest.fixture
+async def reporter_token(client: AsyncClient, manager_token: str) -> str:
+    """Create a reporter user and return their token."""
+    resp = await client.post(
+        "/api/v1/users",
+        json={"email": "reporter@example.com", "password": "reporterpass1", "role": "reporter"},
+        headers=auth_header(manager_token),
+    )
+    assert resp.status_code == 201
+
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "reporter@example.com", "password": "reporterpass1"},
+    )
+    assert login_resp.status_code == 200
+    return login_resp.json()["access_token"]

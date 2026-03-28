@@ -10,12 +10,15 @@ app = typer.Typer(help="Manage users")
 
 @app.command("create")
 def create(
-    name: str = typer.Argument(..., help="User's full name"),
     email: str = typer.Argument(..., help="User's email address"),
+    password: str = typer.Option(..., prompt=True, hide_input=True, help="Password"),
+    role: str = typer.Option("user", help="Role: manager, user, or reporter"),
 ) -> None:
-    """Create a new user in your organization."""
+    """Create a new user in your organization. Display name is auto-assigned."""
     client = get_client()
-    resp = client.post("/api/v1/users", json={"name": name, "email": email})
+    resp = client.post(
+        "/api/v1/users", json={"email": email, "password": password, "role": role}
+    )
     print_record(resp.json(), title="User Created")
 
 
@@ -25,3 +28,11 @@ def list_users() -> None:
     client = get_client()
     resp = client.get("/api/v1/users")
     print_users_table(resp.json())
+
+
+@app.command("me")
+def me() -> None:
+    """Show your own profile."""
+    client = get_client()
+    resp = client.get("/api/v1/users/me")
+    print_record(resp.json(), title="My Profile")

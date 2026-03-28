@@ -3,16 +3,16 @@ from __future__ import annotations
 import httpx
 from rich.console import Console
 
-from cli.config import get_api_key, get_api_url
+from cli.config import get_api_url, get_token
 
 console = Console()
 
 
 class AkupClient:
-    def __init__(self, base_url: str, api_key: str | None = None) -> None:
+    def __init__(self, base_url: str, token: str | None = None) -> None:
         headers: dict[str, str] = {}
-        if api_key:
-            headers["X-API-Key"] = api_key
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         self._client = httpx.Client(base_url=base_url, headers=headers, timeout=30.0)
 
     def _handle_response(self, resp: httpx.Response) -> httpx.Response:
@@ -42,5 +42,5 @@ class AkupClient:
 
 def get_client(require_auth: bool = True) -> AkupClient:
     url = get_api_url()
-    key = get_api_key() if require_auth else None
-    return AkupClient(base_url=url, api_key=key)
+    token = get_token() if require_auth else None
+    return AkupClient(base_url=url, token=token)

@@ -9,17 +9,14 @@ console = Console()
 
 
 def init() -> None:
-    """Configure the AKUP CLI with API URL and API key."""
+    """Configure the AKUP CLI with API URL."""
     existing = load_config()
 
     api_url = typer.prompt(
         "API base URL",
         default=existing.get("api_url", "http://localhost:8000"),
     )
-    api_key = typer.prompt(
-        "API key",
-        default=existing.get("api_key", ""),
-    )
 
-    save_config({"api_url": api_url.rstrip("/"), "api_key": api_key})
+    save_config({"api_url": api_url.rstrip("/")})
     console.print("[green]Configuration saved to ~/.akup/config.json[/green]")
+    console.print("Run [bold]akup login[/bold] to authenticate.")

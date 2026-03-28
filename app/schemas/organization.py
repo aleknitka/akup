@@ -13,7 +13,6 @@ class OrganizationCreate(BaseModel):
 class OrganizationRead(BaseModel):
     id: uuid.UUID
     name: str
-    api_key: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -29,10 +29,18 @@ class Evidence(Base):
     description: Mapped[str] = mapped_column(Text)
     ai_description: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     evidence_date: Mapped[date] = mapped_column(Date)
+    removal_requested_at: Mapped[datetime | None] = mapped_column(nullable=True, default=None)
+    removal_requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
 
     organization: Mapped[Organization] = relationship(
         "Organization", back_populates="evidence_records"
     )
-    created_by_user: Mapped[User] = relationship("User", back_populates="evidence_records")
+    created_by_user: Mapped[User] = relationship(
+        "User",
+        back_populates="evidence_records",
+        foreign_keys=[created_by_user_id],
+    )

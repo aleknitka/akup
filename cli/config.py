@@ -29,12 +29,12 @@ def get_api_url() -> str:
     return url
 
 
-def get_api_key() -> str:
+def get_token() -> str:
     config = load_config()
-    key = config.get("api_key")
-    if not key:
+    token = config.get("token")
+    if not token:
         from rich.console import Console
 
-        Console().print("[red]API key not configured. Run 'akup init' first.[/red]")
+        Console().print("[red]Not logged in. Run 'akup login' first.[/red]")
         raise SystemExit(1)
-    return key
+    return token

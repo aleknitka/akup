@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +10,12 @@ from app.models.evidence import Evidence
 from app.schemas.evidence import EvidenceCreate, EvidenceUpdate
 
 
-async def create_evidence(db: AsyncSession, org_id: uuid.UUID, data: EvidenceCreate) -> Evidence:
+async def create_evidence(
+    db: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID, data: EvidenceCreate
+) -> Evidence:
     record = Evidence(
         organization_id=org_id,
-        created_by_user_id=data.created_by_user_id,
+        created_by_user_id=user_id,
         commit_sha=data.commit_sha,
         repo_url=str(data.repo_url),
         description=data.description,
@@ -62,7 +64,7 @@ async def list_evidence(
 async def update_evidence(db: AsyncSession, record: Evidence, data: EvidenceUpdate) -> Evidence:
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        setattr(record, field, value if not hasattr(value, "__str__") else str(value))
+        setattr(record, field, value)
     await db.commit()
     await db.refresh(record)
     return record
@@ -71,3 +73,19 @@ async def update_evidence(db: AsyncSession, record: Evidence, data: EvidenceUpda
 async def delete_evidence(db: AsyncSession, record: Evidence) -> None:
     await db.delete(record)
     await db.commit()
+
+
+async def request_removal(db: AsyncSession, record: Evidence, user_id: uuid.UUID) -> Evidence:
+    record.removal_requested_at = datetime.utcnow()
+    record.removal_requested_by = user_id
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
+async def cancel_removal(db: AsyncSession, record: Evidence) -> Evidence:
+    record.removal_requested_at = None
+    record.removal_requested_by = None
+    await db.commit()
+    await db.refresh(record)
+    return record

@@ -11,16 +11,26 @@ app = typer.Typer(help="Manage organizations")
 console = Console()
 
 
-@app.command("create")
-def create(name: str = typer.Argument(..., help="Organization name")) -> None:
-    """Create a new organization and get an API key."""
+@app.command("bootstrap")
+def bootstrap(
+    org_name: str = typer.Argument(..., help="Organization name"),
+    email: str = typer.Option(..., help="Manager email"),
+    password: str = typer.Option(..., prompt=True, hide_input=True, help="Manager password"),
+) -> None:
+    """Create the first organization and manager account."""
     client = get_client(require_auth=False)
-    resp = client.post("/api/v1/organizations", json={"name": name})
+    resp = client.post(
+        "/api/v1/auth/bootstrap",
+        json={"org_name": org_name, "email": email, "password": password},
+    )
     data = resp.json()
-    print_record(data, title="Organization Created")
+    print_record(data, title="Manager Created")
+    console.print("[green]Organization bootstrapped. Run 'akup login' to authenticate.[/green]")
 
-    if typer.confirm("Save this API key to your config?", default=True):
-        config = load_config()
-        config["api_key"] = data["api_key"]
-        save_config(config)
-        console.print("[green]API key saved to config.[/green]")
+
+@app.command("info")
+def info() -> None:
+    """Show current organization info."""
+    client = get_client()
+    resp = client.get("/api/v1/organizations/me")
+    print_record(resp.json(), title="Organization")
